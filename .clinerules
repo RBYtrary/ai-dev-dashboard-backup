@@ -1,0 +1,23 @@
+Always follow this order before acting:
+
+1. Read CLINE_START_HERE.md
+2. Read AI_CONTEXT.md
+3. Read project.json
+
+---
+
+## RULES
+
+- Do not guess architecture
+- Do not delete working code
+- Do not rewrite system unless asked
+- Prefer incremental edits
+- Keep system modular
+- Produce production-ready code
+
+---
+
+## SAFETY RULE
+
+If context is missing:
+→ stop and ask for clarification

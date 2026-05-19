@@ -1,0 +1,110 @@
+@import "tailwindcss";
+
+:root {
+  --background: #080b12;
+  --foreground: #dde3ef;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  line-height: 1.5;
+}
+
+/* ── Card: passive ───────────────────────────────── */
+.ai-card {
+  background: #0d1117;
+  border: 1px solid #1a2336;
+  border-radius: 10px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.ai-card:hover {
+  border-color: #1f2e44;
+}
+
+/* ── Card: interactive ───────────────────────────── */
+.ai-card-interactive {
+  background: #0d1117;
+  border: 1px solid #1a2336;
+  border-radius: 10px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease,
+              transform 0.15s ease, background-color 0.15s ease;
+  cursor: pointer;
+}
+.ai-card-interactive:hover {
+  border-color: #263348;
+  background-color: #0f141e;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  transform: translateY(-1px);
+}
+
+/* ── Nav arrow reveal on hover ───────────────────── */
+.ai-nav-arrow {
+  opacity: 0;
+  display: inline-block;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+.ai-card-interactive:hover .ai-nav-arrow {
+  opacity: 1;
+  transform: translateX(3px);
+}
+
+/* ── External link ───────────────────────────────── */
+.ai-ext-link {
+  color: #4f8ef7;
+  text-decoration: none;
+  transition: color 0.12s ease;
+}
+.ai-ext-link:hover {
+  color: #93c5fd;
+  text-decoration: underline;
+}
+
+/* ── Section link (e.g. "View all →") ────────────── */
+.ai-section-link {
+  font-size: 12px;
+  color: #3a5070;
+  text-decoration: none;
+  transition: color 0.12s ease;
+}
+.ai-section-link:hover {
+  color: #4f8ef7;
+}
+
+/* ── Page link wrapper ───────────────────────────── */
+.ai-page-link {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+}
+
+/* ── Change list bullets ─────────────────────────── */
+.ai-change-item::before {
+  content: "▸";
+  color: #2d4060;
+  margin-right: 8px;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+/* ── Timeline left accent ────────────────────────── */
+/* Applied alongside ai-card: overrides only border-left */
+.ai-timeline-entry {
+  border-left: 2px solid #1e3050;
+}

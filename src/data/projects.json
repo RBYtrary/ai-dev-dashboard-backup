@@ -1,0 +1,9 @@
+[
+  {
+    "name": "AI Dev Dashboard",
+    "status": "active",
+    "type": "control-center",
+    "repo": "https://github.com/RBYtrary/ai-dev-dashboard",
+    "version": "v0.1.0"
+  }
+]
