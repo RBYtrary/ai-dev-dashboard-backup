@@ -1,15 +1,17 @@
 import { exec } from "child_process";
-import path from "path";
 
-export async function POST(req: Request) {
+export async function POST(req: Request): Promise<Response> {
   try {
     const { command } = await req.json();
 
     if (!command) {
-      return Response.json({ error: "No command provided" }, { status: 400 });
+      return Response.json(
+        { error: "No command provided" },
+        { status: 400 }
+      );
     }
 
-    // 🚨 SAFETY LAYER (very important)
+    // 🚨 SAFETY LAYER
     const allowedCommands = [
       "npm run dev",
       "npm run build",
@@ -20,29 +22,41 @@ export async function POST(req: Request) {
     ];
 
     if (!allowedCommands.includes(command)) {
-      return Response.json({
-        error: "Command not allowed",
-        command,
-      });
+      return Response.json(
+        {
+          error: "Command not allowed",
+          command,
+        },
+        { status: 403 }
+      );
     }
 
     const cwd = process.cwd();
 
-    return new Promise((resolve) => {
+    // ✅ FIX: wrap exec in a properly typed Promise<Response>
+    const result = await new Promise<{
+      stdout: string;
+      stderr: string;
+      error: string | null;
+    }>((resolve) => {
       exec(command, { cwd }, (error, stdout, stderr) => {
-        resolve(
-          Response.json({
-            command,
-            stdout,
-            stderr,
-            error: error ? error.message : null,
-          })
-        );
+        resolve({
+          stdout,
+          stderr,
+          error: error ? error.message : null,
+        });
       });
+    });
+
+    return Response.json({
+      command,
+      ...result,
     });
   } catch (err: any) {
     return Response.json(
-      { error: err.message ?? "Terminal error" },
+      {
+        error: err?.message ?? "Terminal error",
+      },
       { status: 500 }
     );
   }
