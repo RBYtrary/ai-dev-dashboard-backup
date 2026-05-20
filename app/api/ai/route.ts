@@ -38,7 +38,7 @@ NEXT CONFIG:
 ${projectContext.nextConfig || "none"}
 
 TYPESCRIPT CONFIG:
-${projectContext.tsconfig}
+${projectContext.tsconfig || "none"}
 
 ERROR:
 ${lastError}
@@ -118,7 +118,7 @@ export async function POST(req: Request) {
     const body = await req.json();
     const message = body?.message || "";
 
-    // TEMP context (safe defaults so build never crashes)
+    // SAFE placeholder context (NO fake structure fields)
     const memoryContext = "memory disabled for now";
 
     const projectContext = {
