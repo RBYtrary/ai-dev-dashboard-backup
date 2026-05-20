@@ -12,6 +12,5 @@ export async function POST(req: Request) {
   }
 
   addMemory(memory);
-
   return Response.json({ status: "saved" });
 }

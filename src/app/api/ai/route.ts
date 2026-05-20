@@ -1,7 +1,24 @@
 import { NextResponse } from "next/server";
 
 /**
- * AI AUTO-DEBUG LOOP (kept safe for deployment)
+ * AI ROUTE — Brain of the auto-debug loop
+ *
+ * Connects to Ollama (local LLM) for fix generation,
+ * then applies edits and re-runs build via internal APIs.
+ *
+ * OLLAMA_URL env var: override for non-local environments.
+ * Self-referencing API calls use request-derived base URL.
+ */
+
+const OLLAMA_URL =
+  process.env.OLLAMA_URL || "http://localhost:11434";
+
+/**
+ * Auto-debug loop:
+ * 1. Ask Ollama to generate file patches for the error
+ * 2. Apply patches via /api/ai-edit
+ * 3. Trigger build via /api/terminal
+ * 4. Repeat until success or maxRetries exceeded
  */
 async function autoDebugFix(
   initialError: string,
@@ -10,25 +27,27 @@ async function autoDebugFix(
     packageJson: any;
     nextConfig: string | null;
     tsconfig: string;
-  }
+  },
+  baseUrl: string
 ) {
   const maxRetries = 3;
   let lastError = initialError;
 
   for (let i = 0; i < maxRetries; i++) {
-    const fixRes = await fetch("http://localhost:11434/api/generate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: "llama3",
-        stream: false,
-        prompt: `
+    // Ask Ollama for file patches
+    let fixRes: Response;
+    try {
+      fixRes = await fetch(`${OLLAMA_URL}/api/generate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "llama3",
+          stream: false,
+          prompt: `
 You are fixing a Next.js build error.
 
 MEMORY:
 ${memoryContext}
-
-PROJECT:
 
 PACKAGE.JSON:
 ${JSON.stringify(projectContext.packageJson ?? {}, null, 2)}
@@ -54,14 +73,17 @@ Return ONLY JSON patches in this format:
 ]
 
 No explanation.
-        `,
-      }),
-    });
+          `.trim(),
+        }),
+      });
+    } catch {
+      // Ollama not reachable (e.g. running on Vercel without local LLM)
+      break;
+    }
 
     const data = await fixRes.json();
 
-    let parsed;
-
+    let parsed: any[];
     try {
       parsed = JSON.parse(data.response);
     } catch {
@@ -70,7 +92,7 @@ No explanation.
 
     if (Array.isArray(parsed)) {
       for (const item of parsed) {
-        await fetch("http://localhost:3000/api/ai-edit", {
+        await fetch(`${baseUrl}/api/ai-edit`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify([
@@ -84,7 +106,7 @@ No explanation.
       }
     }
 
-    const testRes = await fetch("http://localhost:3000/api/terminal", {
+    const testRes = await fetch(`${baseUrl}/api/terminal`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ command: "npm run build" }),
@@ -93,36 +115,33 @@ No explanation.
     const testData = await testRes.json();
 
     if (!testData.stderr && !testData.error) {
-      return {
-        success: true,
-        fixed: true,
-      };
+      return { success: true, fixed: true };
     }
 
     lastError = testData.stderr || testData.error || "unknown error";
   }
 
-  return {
-    success: false,
-    fixed: false,
-    lastError,
-  };
+  return { success: false, fixed: false, lastError };
 }
 
 /**
- * MAIN AI ROUTE
+ * POST /api/ai
+ * Body: { message: string }
  */
 export async function POST(req: Request) {
   try {
     const body = await req.json();
     const message = body?.message || "";
 
-    // SAFE CONTEXT (prevents build crashes)
-    const memoryContext = "memory disabled for now";
+    // Derive base URL from request — works on all environments
+    const url = new URL(req.url);
+    const baseUrl = `${url.protocol}//${url.host}`;
 
+    // Stable context (expand as system grows)
+    const memoryContext = "memory disabled for now";
     const projectContext = {
       packageJson: {},
-      nextConfig: null,
+      nextConfig: null as string | null,
       tsconfig: "",
     };
 

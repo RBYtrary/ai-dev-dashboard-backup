@@ -4,34 +4,34 @@ import path from "path";
 import { exec } from "child_process";
 import { promisify } from "util";
 
+// Explicit Node.js runtime — required for fs and child_process
+export const runtime = "nodejs";
+
 const execAsync = promisify(exec);
 
-/**
- * CONFIG
- * You can later swap this to Ollama / OpenAI
- */
-const AI_ENDPOINT = "http://localhost:11434/api/chat"; // Ollama default
+// Ollama endpoint — override via env var for non-local environments
+const AI_ENDPOINT =
+  process.env.OLLAMA_URL
+    ? `${process.env.OLLAMA_URL}/api/chat`
+    : "http://localhost:11434/api/chat";
 
 type AIEditRequest = {
   instruction: string;
 };
 
 /**
- * Helper: read full project context (light version)
+ * Read project config files for AI context
  */
 async function getProjectContext() {
-  const files = [
-    "package.json",
-    "next.config.js",
-    "tsconfig.json",
-  ];
-
+  const files = ["package.json", "next.config.js", "tsconfig.json"];
   const context: Record<string, string> = {};
 
   for (const file of files) {
     try {
-      const content = await fs.readFile(path.join(process.cwd(), file), "utf-8");
-      context[file] = content;
+      context[file] = await fs.readFile(
+        path.join(process.cwd(), file),
+        "utf-8"
+      );
     } catch {
       context[file] = "NOT_FOUND";
     }
@@ -41,13 +41,9 @@ async function getProjectContext() {
 }
 
 /**
- * Helper: apply file edits from AI
- * AI must return:
- * {
- *   files: [
- *     { path: "app/page.tsx", content: "..." }
- *   ]
- * }
+ * Apply file edits received from AI
+ * Expected AI response format:
+ * { "files": [{ "path": "relative/path", "content": "full content" }] }
  */
 async function applyEdits(edits: any) {
   if (!edits?.files) return;
@@ -60,24 +56,25 @@ async function applyEdits(edits: any) {
 }
 
 /**
- * Helper: run diagnostics after edits
+ * Run lint as a post-edit diagnostic
  */
 async function runDiagnostics() {
   try {
     const { stdout, stderr } = await execAsync("npm run lint");
     return { success: true, output: stdout + stderr };
   } catch (err: any) {
-    return {
-      success: false,
-      output: err.stdout + err.stderr,
-    };
+    return { success: false, output: err.stdout + err.stderr };
   }
 }
 
 /**
- * Call AI (Ollama-style)
+ * Call Ollama-compatible AI endpoint
  */
-async function callAI(instruction: string, context: any, errorLog?: string) {
+async function callAI(
+  instruction: string,
+  context: any,
+  errorLog?: string
+) {
   const res = await fetch(AI_ENDPOINT, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -88,29 +85,19 @@ async function callAI(instruction: string, context: any, errorLog?: string) {
           role: "system",
           content: `
 You are a senior software engineer inside a Next.js project.
-
-You can:
-- read project files
-- edit files
-- fix errors
+You can read project files, edit files, and fix errors.
 
 RULES:
 - Always return VALID JSON ONLY
-- No markdown
-- No explanation text
+- No markdown, no explanation text
 
 OUTPUT FORMAT:
 {
   "files": [
-    {
-      "path": "relative/path",
-      "content": "full file content"
-    }
+    { "path": "relative/path", "content": "full file content" }
   ]
 }
-
-If fixing errors, prioritize correctness over creativity.
-          `,
+          `.trim(),
         },
         {
           role: "user",
@@ -122,7 +109,7 @@ PROJECT CONTEXT:
 ${JSON.stringify(context, null, 2)}
 
 ${errorLog ? `ERROR LOG:\n${errorLog}` : ""}
-          `,
+          `.trim(),
         },
       ],
       stream: false,
@@ -133,32 +120,23 @@ ${errorLog ? `ERROR LOG:\n${errorLog}` : ""}
 }
 
 /**
- * AUTO DEBUG LOOP
+ * Auto-debug loop: edit → lint → retry up to 3 times
  */
 async function autoFixLoop(instruction: string, context: any) {
-  let result = await callAI(instruction, context);
-
-  let edits = result;
-
-  await applyEdits(edits);
+  const result = await callAI(instruction, context);
+  await applyEdits(result);
 
   let diagnostics = await runDiagnostics();
-
   let attempts = 0;
 
   while (!diagnostics.success && attempts < 3) {
     attempts++;
-
     const fixResult = await callAI(
       "Fix the errors from diagnostics",
       context,
       diagnostics.output
     );
-
-    edits = fixResult;
-
-    await applyEdits(edits);
-
+    await applyEdits(fixResult);
     diagnostics = await runDiagnostics();
   }
 
@@ -166,14 +144,13 @@ async function autoFixLoop(instruction: string, context: any) {
 }
 
 /**
- * MAIN ROUTE
+ * POST /api/ai-edit
+ * Body: { instruction: string }
  */
 export async function POST(req: Request) {
   try {
     const body: AIEditRequest = await req.json();
-
     const context = await getProjectContext();
-
     const result = await autoFixLoop(body.instruction, context);
 
     return NextResponse.json({
