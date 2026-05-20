@@ -4,32 +4,23 @@ import path from "path";
 export function getProjectContext() {
   const root = process.cwd();
 
-  const importantFiles = [
-    "package.json",
-    "next.config.js",
-    "tsconfig.json"
-  ];
+  const packageJson = fs.readFileSync(
+    path.join(root, "package.json"),
+    "utf-8"
+  );
 
-  const files = importantFiles.map((file) => {
-    const filePath = path.join(root, file);
+  const nextConfigPath = path.join(root, "next.config.js");
+  const tsconfigPath = path.join(root, "tsconfig.json");
 
-    try {
-      const content = fs.readFileSync(filePath, "utf-8");
+  const nextConfig = fs.existsSync(nextConfigPath)
+    ? fs.readFileSync(nextConfigPath, "utf-8")
+    : null;
 
-      return {
-        file,
-        content
-      };
-    } catch {
-      return {
-        file,
-        content: "FILE_NOT_FOUND"
-      };
-    }
-  });
+  const tsconfig = fs.readFileSync(tsconfigPath, "utf-8");
 
   return {
-    structure: "Next.js App Router project",
-    files
+    packageJson: JSON.parse(packageJson),
+    nextConfig,
+    tsconfig,
   };
 }
