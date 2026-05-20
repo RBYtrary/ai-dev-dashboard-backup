@@ -7,7 +7,11 @@ import { NextResponse } from "next/server";
 async function autoDebugFix(
   initialError: string,
   memoryContext: string,
-  projectContext: string
+  projectContext: {
+    packageJson: any;
+    nextConfig: string | null;
+    tsconfig: string;
+  }
 ) {
   const maxRetries = 3;
   let lastError = initialError;
@@ -26,7 +30,15 @@ MEMORY:
 ${memoryContext}
 
 PROJECT:
-${projectContext}
+
+PACKAGE.JSON:
+${JSON.stringify(projectContext.packageJson, null, 2)}
+
+NEXT CONFIG:
+${projectContext.nextConfig || "none"}
+
+TYPESCRIPT CONFIG:
+${projectContext.tsconfig}
 
 ERROR:
 ${lastError}
@@ -100,19 +112,21 @@ No explanation.
 
 /**
  * REQUIRED: Next.js route handler
- * This is what fixes your "not a module" error
  */
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-
     const message = body?.message || "";
 
-    // TEMP context (we will upgrade this later)
+    // TEMP context (safe defaults so build never crashes)
     const memoryContext = "memory disabled for now";
-    const projectContext = "project context disabled for now";
 
-    // Placeholder response (AI brain later)
+    const projectContext = {
+      packageJson: {},
+      nextConfig: null,
+      tsconfig: "",
+    };
+
     const reply = `AI received: ${message}`;
 
     return NextResponse.json({
