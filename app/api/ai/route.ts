@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 
 /**
  * Your existing AI auto-debug loop
- * (KEEP THIS — do not remove it)
  */
 async function autoDebugFix(
   initialError: string,
@@ -29,22 +28,22 @@ You are fixing a Next.js build error.
 MEMORY:
 ${memoryContext}
 
-PROJECT:
+PROJECT FILES (SAFE SNAPSHOT):
 
-PACKAGE.JSON:
-${JSON.stringify(projectContext.packageJson, null, 2)}
+package.json:
+${JSON.stringify(projectContext.packageJson ?? {}, null, 2)}
 
-NEXT CONFIG:
-${projectContext.nextConfig || "none"}
+next.config:
+${projectContext.nextConfig ?? "none"}
 
-TYPESCRIPT CONFIG:
-${projectContext.tsconfig || "none"}
+tsconfig:
+${projectContext.tsconfig ?? "none"}
 
 ERROR:
 ${lastError}
 
 TASK:
-Fix the issue by outputting ONLY JSON file patches:
+Return ONLY JSON patches in this format:
 
 [
   {
@@ -111,27 +110,25 @@ No explanation.
 }
 
 /**
- * REQUIRED: Next.js route handler
+ * MAIN AI ROUTE
  */
 export async function POST(req: Request) {
   try {
     const body = await req.json();
     const message = body?.message || "";
 
-    // SAFE placeholder context (NO fake structure fields)
     const memoryContext = "memory disabled for now";
 
+    // IMPORTANT: no unsafe fields like "structure" or "files"
     const projectContext = {
       packageJson: {},
       nextConfig: null,
       tsconfig: "",
     };
 
-    const reply = `AI received: ${message}`;
-
     return NextResponse.json({
       success: true,
-      reply,
+      reply: `AI received: ${message}`,
     });
   } catch (error: any) {
     return NextResponse.json(
