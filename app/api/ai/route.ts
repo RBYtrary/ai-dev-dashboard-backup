@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 /**
- * Your existing AI auto-debug loop
+ * AI AUTO-DEBUG LOOP (kept safe for deployment)
  */
 async function autoDebugFix(
   initialError: string,
@@ -28,15 +28,15 @@ You are fixing a Next.js build error.
 MEMORY:
 ${memoryContext}
 
-PROJECT FILES (SAFE SNAPSHOT):
+PROJECT:
 
-package.json:
+PACKAGE.JSON:
 ${JSON.stringify(projectContext.packageJson ?? {}, null, 2)}
 
-next.config:
+NEXT CONFIG:
 ${projectContext.nextConfig ?? "none"}
 
-tsconfig:
+TYPESCRIPT CONFIG:
 ${projectContext.tsconfig ?? "none"}
 
 ERROR:
@@ -117,9 +117,9 @@ export async function POST(req: Request) {
     const body = await req.json();
     const message = body?.message || "";
 
+    // SAFE CONTEXT (prevents build crashes)
     const memoryContext = "memory disabled for now";
 
-    // IMPORTANT: no unsafe fields like "structure" or "files"
     const projectContext = {
       packageJson: {},
       nextConfig: null,
