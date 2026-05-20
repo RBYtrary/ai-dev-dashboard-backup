@@ -1,4 +1,14 @@
-async function autoDebugFix(initialError: string, memoryContext: string, projectContext: string) {
+import { NextResponse } from "next/server";
+
+/**
+ * Your existing AI auto-debug loop
+ * (KEEP THIS — do not remove it)
+ */
+async function autoDebugFix(
+  initialError: string,
+  memoryContext: string,
+  projectContext: string
+) {
   const maxRetries = 3;
   let lastError = initialError;
 
@@ -63,7 +73,6 @@ No explanation.
       }
     }
 
-    // re-run build after fix
     const testRes = await fetch("http://localhost:3000/api/terminal", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -87,4 +96,36 @@ No explanation.
     fixed: false,
     lastError,
   };
+}
+
+/**
+ * REQUIRED: Next.js route handler
+ * This is what fixes your "not a module" error
+ */
+export async function POST(req: Request) {
+  try {
+    const body = await req.json();
+
+    const message = body?.message || "";
+
+    // TEMP context (we will upgrade this later)
+    const memoryContext = "memory disabled for now";
+    const projectContext = "project context disabled for now";
+
+    // Placeholder response (AI brain later)
+    const reply = `AI received: ${message}`;
+
+    return NextResponse.json({
+      success: true,
+      reply,
+    });
+  } catch (error: any) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: error?.message || "Unknown error",
+      },
+      { status: 500 }
+    );
+  }
 }
