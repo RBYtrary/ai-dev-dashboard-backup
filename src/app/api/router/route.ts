@@ -1,13 +1,27 @@
 /**
- * POST /api/ai
+ * POST /api/router
  *
- * General-purpose AI endpoint (non-streaming).
- * Delegates entirely to /api/router internals.
- * Kept as a separate route for backward compatibility with any
- * existing callers that use /api/ai instead of /api/router.
+ * Non-streaming AI endpoint.
+ * All pages and components that need a complete AI response
+ * (not streamed) call this endpoint.
  *
- * All model access goes through src/lib/models.ts.
- * All routing goes through src/lib/ai-router.ts.
+ * Body: {
+ *   message: string
+ *   sessionId?: string        — omit to start a new session
+ *   providerOverride?: string — override MODEL_PROVIDER for this call
+ *   modelOverride?: string    — override MODEL_DEFAULT for this call
+ * }
+ *
+ * Response: {
+ *   reply: string
+ *   sessionId: string
+ *   intent: Intent
+ *   routeId: string
+ *   model: string
+ *   provider: string
+ *   confidence: string
+ *   usage: { promptTokens, completionTokens, totalTokens }
+ * }
  */
 
 import { NextResponse } from "next/server";
@@ -25,36 +39,43 @@ export const runtime = "nodejs";
 export async function POST(req: Request) {
   try {
     const body = await req.json();
+
     const {
       message,
       sessionId: incomingSessionId,
       providerOverride,
       modelOverride,
-    } = body as {
-      message?: string;
+    }: {
+      message: string;
       sessionId?: string;
       providerOverride?: string;
       modelOverride?: string;
-    };
+    } = body;
 
     if (!message || typeof message !== "string" || message.trim() === "") {
       return NextResponse.json(
-        { error: "message is required" },
+        { error: "message is required and must be a non-empty string" },
         { status: 400 }
       );
     }
 
     const sessionId = incomingSessionId ?? generateSessionId();
+
+    // Classify intent and resolve system prompt + model config
     const routing = route(message, { providerOverride, modelOverride });
+
+    // Load existing session history for context
     const history = await getMessagesForContext(sessionId);
 
     const userMessage: CoreMessage = { role: "user", content: message };
+
     const messages: CoreMessage[] = [
       { role: "system", content: routing.systemPrompt },
       ...history,
       userMessage,
     ];
 
+    // Call the model through the abstraction layer
     const result = await generateText(messages, {
       model: routing.model,
       provider: routing.provider as Provider | undefined,
@@ -62,24 +83,39 @@ export async function POST(req: Request) {
       maxTokens: routing.maxTokens,
     });
 
+    // Persist both turns to memory
     await addMessage(sessionId, userMessage);
     await addMessage(
       sessionId,
       { role: "assistant", content: result.text },
-      { intent: routing.intent, routeId: routing.routeId }
+      {
+        intent: routing.intent,
+        routeId: routing.routeId,
+        model: result.model,
+        provider: result.provider,
+        durationMs: result.durationMs,
+        confidence: routing.confidence,
+      }
     );
 
     return NextResponse.json({
-      success: true,
       reply: result.text,
       sessionId,
       intent: routing.intent,
+      routeId: routing.routeId,
       model: result.model,
+      provider: result.provider,
+      confidence: routing.confidence,
+      usage: result.usage,
+      durationMs: result.durationMs,
     });
   } catch (err: any) {
-    console.error("[/api/ai]", err);
+    console.error("[/api/router] Error:", err);
     return NextResponse.json(
-      { success: false, error: err?.message ?? "AI error" },
+      {
+        error: err?.message ?? "Router error",
+        code: err?.code,
+      },
       { status: 500 }
     );
   }

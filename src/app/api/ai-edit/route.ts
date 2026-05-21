@@ -1,31 +1,43 @@
+/**
+ * POST /api/ai-edit
+ *
+ * Applies AI-generated file patches.
+ * Requests the AI to generate file edits given an instruction,
+ * then applies those edits to the local filesystem.
+ *
+ * LOCAL ONLY: File writes use process.cwd() which is the project root.
+ * On Vercel: writes go to /tmp (ephemeral, cleared between invocations).
+ * For persistent edits on Vercel: GitHub API commit + Deploy Hook (Phase 2).
+ *
+ * All model access goes through src/lib/models.ts — no direct fetches.
+ */
+
 import { NextResponse } from "next/server";
 import fs from "fs/promises";
 import path from "path";
 import { exec } from "child_process";
 import { promisify } from "util";
+import { generateText } from "@/lib/models";
+import type { CoreMessage } from "ai";
 
-// Explicit Node.js runtime — required for fs and child_process
 export const runtime = "nodejs";
 
 const execAsync = promisify(exec);
-
-// Ollama endpoint — override via env var for non-local environments
-const AI_ENDPOINT =
-  process.env.OLLAMA_URL
-    ? `${process.env.OLLAMA_URL}/api/chat`
-    : "http://localhost:11434/api/chat";
 
 type AIEditRequest = {
   instruction: string;
 };
 
-/**
- * Read project config files for AI context
- */
-async function getProjectContext() {
+type FileEdit = {
+  path: string;
+  content: string;
+};
+
+// ─── Context reader ───────────────────────────────────────────────────────────
+
+async function getProjectContext(): Promise<Record<string, string>> {
   const files = ["package.json", "next.config.js", "tsconfig.json"];
   const context: Record<string, string> = {};
-
   for (const file of files) {
     try {
       context[file] = await fs.readFile(
@@ -36,127 +48,106 @@ async function getProjectContext() {
       context[file] = "NOT_FOUND";
     }
   }
-
   return context;
 }
 
-/**
- * Apply file edits received from AI
- * Expected AI response format:
- * { "files": [{ "path": "relative/path", "content": "full content" }] }
- */
-async function applyEdits(edits: any) {
-  if (!edits?.files) return;
+// ─── File patch applier ───────────────────────────────────────────────────────
 
-  for (const file of edits.files) {
-    const fullPath = path.join(process.cwd(), file.path);
+async function applyEdits(edits: FileEdit[]): Promise<void> {
+  for (const edit of edits) {
+    const fullPath = path.join(process.cwd(), edit.path);
+    // Security: ensure path stays within cwd
+    if (!fullPath.startsWith(process.cwd())) {
+      console.warn(`[ai-edit] Rejected out-of-bounds path: ${edit.path}`);
+      continue;
+    }
     await fs.mkdir(path.dirname(fullPath), { recursive: true });
-    await fs.writeFile(fullPath, file.content, "utf-8");
+    await fs.writeFile(fullPath, edit.content, "utf-8");
   }
 }
 
-/**
- * Run lint as a post-edit diagnostic
- */
-async function runDiagnostics() {
+// ─── Diagnostics ──────────────────────────────────────────────────────────────
+
+async function runDiagnostics(): Promise<{ success: boolean; output: string }> {
   try {
-    const { stdout, stderr } = await execAsync("npm run lint");
+    const { stdout, stderr } = await execAsync("npm run lint", {
+      cwd: process.cwd(),
+      timeout: 30_000,
+    });
     return { success: true, output: stdout + stderr };
   } catch (err: any) {
-    return { success: false, output: err.stdout + err.stderr };
+    return { success: false, output: (err.stdout ?? "") + (err.stderr ?? "") };
   }
 }
 
-/**
- * Call Ollama-compatible AI endpoint
- */
-async function callAI(
+// ─── AI edit loop ─────────────────────────────────────────────────────────────
+
+async function autoFixLoop(
   instruction: string,
-  context: any,
-  errorLog?: string
-) {
-  const res = await fetch(AI_ENDPOINT, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: "llama3",
-      messages: [
-        {
-          role: "system",
-          content: `
-You are a senior software engineer inside a Next.js project.
-You can read project files, edit files, and fix errors.
+  context: Record<string, string>
+): Promise<{ success: boolean; output: string }> {
+  const systemPrompt = `You are a senior software engineer. Apply the requested change to the project.
+Return ONLY valid JSON. No markdown, no explanations.
+Format: { "files": [{ "path": "relative/path", "content": "full file content" }] }`;
 
-RULES:
-- Always return VALID JSON ONLY
-- No markdown, no explanation text
+  const userContent = `INSTRUCTION:\n${instruction}\n\nCONTEXT:\n${JSON.stringify(
+    context,
+    null,
+    2
+  )}`;
 
-OUTPUT FORMAT:
-{
-  "files": [
-    { "path": "relative/path", "content": "full file content" }
-  ]
-}
-          `.trim(),
-        },
-        {
-          role: "user",
-          content: `
-INSTRUCTION:
-${instruction}
+  const messages: CoreMessage[] = [
+    { role: "system", content: systemPrompt },
+    { role: "user", content: userContent },
+  ];
 
-PROJECT CONTEXT:
-${JSON.stringify(context, null, 2)}
-
-${errorLog ? `ERROR LOG:\n${errorLog}` : ""}
-          `.trim(),
-        },
-      ],
-      stream: false,
-    }),
-  });
-
-  return res.json();
-}
-
-/**
- * Auto-debug loop: edit → lint → retry up to 3 times
- */
-async function autoFixLoop(instruction: string, context: any) {
-  const result = await callAI(instruction, context);
-  await applyEdits(result);
+  // First attempt
+  const result = await generateText(messages, { temperature: 0.1, maxTokens: 4000 });
+  let editsJson: { files: FileEdit[] } | null = null;
+  try {
+    editsJson = JSON.parse(result.text);
+  } catch {
+    return { success: false, output: "AI returned non-JSON response" };
+  }
+  if (editsJson?.files) await applyEdits(editsJson.files);
 
   let diagnostics = await runDiagnostics();
   let attempts = 0;
 
   while (!diagnostics.success && attempts < 3) {
     attempts++;
-    const fixResult = await callAI(
-      "Fix the errors from diagnostics",
-      context,
-      diagnostics.output
-    );
-    await applyEdits(fixResult);
+    const fixMessages: CoreMessage[] = [
+      ...messages,
+      { role: "assistant", content: result.text },
+      {
+        role: "user",
+        content: `Diagnostics failed:\n${diagnostics.output}\nReturn corrected JSON only.`,
+      },
+    ];
+    const fixResult = await generateText(fixMessages, {
+      temperature: 0.1,
+      maxTokens: 4000,
+    });
+    try {
+      const fixEdits: { files: FileEdit[] } = JSON.parse(fixResult.text);
+      if (fixEdits?.files) await applyEdits(fixEdits.files);
+    } catch {
+      break;
+    }
     diagnostics = await runDiagnostics();
   }
 
   return diagnostics;
 }
 
-/**
- * POST /api/ai-edit
- * Body: { instruction: string }
- */
+// ─── Route ────────────────────────────────────────────────────────────────────
+
 export async function POST(req: Request) {
   try {
     const body: AIEditRequest = await req.json();
     const context = await getProjectContext();
     const result = await autoFixLoop(body.instruction, context);
-
-    return NextResponse.json({
-      success: result.success,
-      logs: result.output,
-    });
+    return NextResponse.json({ success: result.success, logs: result.output });
   } catch (err: any) {
     return NextResponse.json(
       { success: false, error: err.message },

@@ -1,15 +1,32 @@
 /**
- * AUTO-DEBUG ROUTE
- * Triggers the terminal API to run a build and returns output.
+ * POST /api/auto-debug
  *
- * Uses request URL to derive base URL — works on localhost, Vercel preview,
- * and production without any environment variable configuration.
+ * Triggers a build via /api/terminal and returns the output.
+ * LOCAL ONLY — returns 501 on Vercel (blocking builds are not
+ * compatible with serverless function timeouts).
+ *
+ * Phase 2 will replace this with an async queue + polling architecture.
  */
+
+const IS_VERCEL = process.env.VERCEL === "1";
+
 export async function POST(req: Request) {
+  if (IS_VERCEL) {
+    return Response.json(
+      {
+        error:
+          "auto-debug requires local runtime. " +
+          "Blocking builds are not supported in Vercel serverless functions. " +
+          "Phase 2 will provide async queued build support.",
+        code: "LOCAL_ONLY",
+      },
+      { status: 501 }
+    );
+  }
+
   try {
     const { command = "npm run build" } = await req.json();
 
-    // Derive base URL from incoming request — safe on all environments
     const url = new URL(req.url);
     const baseUrl = `${url.protocol}//${url.host}`;
 

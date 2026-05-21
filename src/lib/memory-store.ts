@@ -1,4 +1,13 @@
-// Simple in-memory store (resets on deploy/restart)
+/**
+ * @deprecated SUPERSEDED by src/lib/memory.ts
+ *
+ * This file is kept to prevent breaking changes during migration.
+ * - memory.ts provides Vercel KV persistence with in-process fallback
+ * - This file uses a module-level array that resets on every serverless invocation
+ *
+ * All new code must import from @/lib/memory instead.
+ * This file will be removed in a future cleanup pass.
+ */
 
 type MemoryEntry = {
   id: string;
